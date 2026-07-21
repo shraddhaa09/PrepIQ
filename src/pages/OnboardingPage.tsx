@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, ChevronLeft, Check, Plus, Trash2 } from "lucide-react";
@@ -62,6 +62,24 @@ const PREDEFINED_TECH_SKILLS = [
   "Flutter", "React Native", "Android Development", "iOS Development",
   "Cybersecurity", "Ethical Hacking", "Network Security", "Penetration Testing"
 ].sort();
+
+const DRAFT_KEY = "onboardingDraft";
+
+interface OnboardingDraft {
+  targetRoles: string[];
+  dreamCompanies: string[];
+  degree: string;
+  institution: string;
+  graduationYear: string;
+  coursework: string;
+  certifications: string[];
+  workHistory: WorkEntry[];
+  isFresher: boolean;
+  technicalSkills: SkillEntry[];
+  softSkills: string[];
+  fears: string[];
+  fearNotes: string;
+}
 
 const SearchableMultiSelect = ({ options, selected, onChange, placeholder }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
   const [query, setQuery] = useState("");
@@ -163,10 +181,122 @@ const emptyWorkEntry = (): WorkEntry => ({
   responsibilities: "",
 });
 
+const buildDraft = ({
+  targetRoles,
+  dreamCompanies,
+  degree,
+  institution,
+  graduationYear,
+  coursework,
+  certifications,
+  workHistory,
+  isFresher,
+  technicalSkills,
+  softSkills,
+  fears,
+  fearNotes,
+}: {
+  targetRoles: string[];
+  dreamCompanies: string[];
+  degree: string;
+  institution: string;
+  graduationYear: string;
+  coursework: string;
+  certifications: string[];
+  workHistory: WorkEntry[];
+  isFresher: boolean;
+  technicalSkills: SkillEntry[];
+  softSkills: string[];
+  fears: string[];
+  fearNotes: string;
+}): OnboardingDraft => ({
+  targetRoles,
+  dreamCompanies,
+  degree,
+  institution,
+  graduationYear,
+  coursework,
+  certifications,
+  workHistory,
+  isFresher,
+  technicalSkills,
+  softSkills,
+  fears,
+  fearNotes,
+});
+
+const persistDraft = (draft: OnboardingDraft) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // Ignore storage write failures.
+  }
+};
+
+const clearDraft = () => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Ignore storage removal failures.
+  }
+};
+
+const readDraftFromStorage = (): OnboardingDraft | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const rawDraft = window.localStorage.getItem(DRAFT_KEY);
+    if (!rawDraft) return null;
+
+    const parsedDraft = JSON.parse(rawDraft) as Partial<OnboardingDraft>;
+
+    return {
+      targetRoles: Array.isArray(parsedDraft.targetRoles) ? parsedDraft.targetRoles : [],
+      dreamCompanies: Array.isArray(parsedDraft.dreamCompanies) ? parsedDraft.dreamCompanies : [],
+      degree: typeof parsedDraft.degree === "string" ? parsedDraft.degree : "",
+      institution: typeof parsedDraft.institution === "string" ? parsedDraft.institution : "",
+      graduationYear: typeof parsedDraft.graduationYear === "string" ? parsedDraft.graduationYear : "",
+      coursework: typeof parsedDraft.coursework === "string" ? parsedDraft.coursework : "",
+      certifications: Array.isArray(parsedDraft.certifications) ? parsedDraft.certifications : [],
+      workHistory: Array.isArray(parsedDraft.workHistory)
+        ? parsedDraft.workHistory.map((entry) => ({
+            id: typeof entry?.id === "string" ? entry.id : crypto.randomUUID(),
+            jobTitle: typeof entry?.jobTitle === "string" ? entry.jobTitle : "",
+            company: typeof entry?.company === "string" ? entry.company : "",
+            from: typeof entry?.from === "string" ? entry.from : "",
+            to: typeof entry?.to === "string" ? entry.to : "",
+            responsibilities: typeof entry?.responsibilities === "string" ? entry.responsibilities : "",
+          }))
+        : [emptyWorkEntry()],
+      isFresher: typeof parsedDraft.isFresher === "boolean" ? parsedDraft.isFresher : false,
+      technicalSkills: Array.isArray(parsedDraft.technicalSkills)
+        ? parsedDraft.technicalSkills
+            .map((skill) => ({
+              name: typeof skill?.name === "string" ? skill.name : "",
+              proficiency: skill?.proficiency === "Beginner" || skill?.proficiency === "Intermediate" || skill?.proficiency === "Expert"
+                ? skill.proficiency
+                : "Intermediate",
+            }))
+            .filter((skill) => skill.name)
+        : [],
+      softSkills: Array.isArray(parsedDraft.softSkills) ? parsedDraft.softSkills.filter((value): value is string => typeof value === "string") : [],
+      fears: Array.isArray(parsedDraft.fears) ? parsedDraft.fears.filter((value): value is string => typeof value === "string") : [],
+      fearNotes: typeof parsedDraft.fearNotes === "string" ? parsedDraft.fearNotes : "",
+    };
+  } catch {
+    return null;
+  }
+};
+
 export default function OnboardingPage({ user, profile, onSave }: OnboardingPageProps) {
   const [step, setStep] = useState(0);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const hasInitializedRef = useRef(false);
 
   const [targetRoles, setTargetRoles] = useState<string[]>([]);
   const [dreamCompanies, setDreamCompanies] = useState<string[]>([]);
@@ -184,24 +314,90 @@ export default function OnboardingPage({ user, profile, onSave }: OnboardingPage
   const [fears, setFears] = useState<string[]>([]);
   const [fearNotes, setFearNotes] = useState("");
 
+  const applyProfileToState = (nextProfile: CareerProfile) => {
+    setTargetRoles(nextProfile.targetRoles);
+    setDreamCompanies(nextProfile.dreamCompanies);
+    setDegree(nextProfile.degree);
+    setInstitution(nextProfile.institution);
+    setGraduationYear(nextProfile.graduationYear);
+    setCoursework(nextProfile.coursework);
+    setCertifications(nextProfile.certifications);
+    setWorkHistory(nextProfile.workHistory.length > 0 ? nextProfile.workHistory : [emptyWorkEntry()]);
+    setTechnicalSkills(nextProfile.technicalSkills);
+    setSoftSkills(nextProfile.softSkills);
+    setFears(nextProfile.interviewFears);
+    setFearNotes(nextProfile.fearNotes);
+  };
+
+  const applyDraftToState = (draft: OnboardingDraft) => {
+    setTargetRoles(draft.targetRoles);
+    setDreamCompanies(draft.dreamCompanies);
+    setDegree(draft.degree);
+    setInstitution(draft.institution);
+    setGraduationYear(draft.graduationYear);
+    setCoursework(draft.coursework);
+    setCertifications(draft.certifications);
+    setWorkHistory(draft.workHistory);
+    setIsFresher(draft.isFresher);
+    setTechnicalSkills(draft.technicalSkills);
+    setSoftSkills(draft.softSkills);
+    setFears(draft.fears);
+    setFearNotes(draft.fearNotes);
+  };
+
   useEffect(() => {
-    if (!profile) {
+    if (profile) {
+      applyProfileToState(profile);
+      hasInitializedRef.current = true;
       return;
     }
 
-    setTargetRoles(profile.targetRoles);
-    setDreamCompanies(profile.dreamCompanies);
-    setDegree(profile.degree);
-    setInstitution(profile.institution);
-    setGraduationYear(profile.graduationYear);
-    setCoursework(profile.coursework);
-    setCertifications(profile.certifications);
-    setWorkHistory(profile.workHistory.length > 0 ? profile.workHistory : [emptyWorkEntry()]);
-    setTechnicalSkills(profile.technicalSkills);
-    setSoftSkills(profile.softSkills);
-    setFears(profile.interviewFears);
-    setFearNotes(profile.fearNotes);
+    const savedDraft = readDraftFromStorage();
+    if (savedDraft) {
+      applyDraftToState(savedDraft);
+    }
+
+    hasInitializedRef.current = true;
   }, [profile]);
+
+  useEffect(() => {
+    if (!hasInitializedRef.current || profile) {
+      return;
+    }
+
+    persistDraft(
+      buildDraft({
+        targetRoles,
+        dreamCompanies,
+        degree,
+        institution,
+        graduationYear,
+        coursework,
+        certifications,
+        workHistory,
+        isFresher,
+        technicalSkills,
+        softSkills,
+        fears,
+        fearNotes,
+      })
+    );
+  }, [
+    profile,
+    targetRoles,
+    dreamCompanies,
+    degree,
+    institution,
+    graduationYear,
+    coursework,
+    certifications,
+    workHistory,
+    isFresher,
+    technicalSkills,
+    softSkills,
+    fears,
+    fearNotes,
+  ]);
 
   const addWorkEntry = () => {
     setWorkHistory([
@@ -318,7 +514,7 @@ export default function OnboardingPage({ user, profile, onSave }: OnboardingPage
       return;
     }
 
-    const profile: CareerProfile = {
+    const profileToSave: CareerProfile = {
       userId: user.id,
       fullName: user.name,
       email: user.email,
@@ -337,7 +533,8 @@ export default function OnboardingPage({ user, profile, onSave }: OnboardingPage
       onboardingComplete: true,
     };
     try {
-      await onSave(profile);
+      await onSave(profileToSave);
+      clearDraft();
       toast({ title: "Profile saved!", description: "Your Career DNA is ready." });
       navigate("/dashboard");
     } catch (error) {
