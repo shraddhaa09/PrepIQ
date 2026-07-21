@@ -63,7 +63,7 @@ const PREDEFINED_TECH_SKILLS = [
   "Cybersecurity", "Ethical Hacking", "Network Security", "Penetration Testing"
 ].sort();
 
-const DRAFT_KEY = "onboardingDraft";
+const DRAFT_KEY = "prepiq_onboarding_draft";
 
 interface OnboardingDraft {
   targetRoles: string[];
